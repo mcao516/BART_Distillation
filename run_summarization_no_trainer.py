@@ -131,7 +131,7 @@ def parse_args():
         help="The number of processes to use for the preprocessing.",
     )
     parser.add_argument(
-        "--overwrite_cache", type=bool, default=None, help="Overwrite the cached training and evaluation sets"
+        "--overwrite_cache", type=bool, default=False, help="Overwrite the cached training and evaluation sets"
     )
     parser.add_argument(
         "--max_target_length",
@@ -258,10 +258,6 @@ def parse_args():
         choices=MODEL_TYPES,
     )
     parser.add_argument(
-        "--hub_model_id", type=str, help="The name of the repository to keep in sync with the local `output_dir`."
-    )
-    parser.add_argument("--hub_token", type=str, help="The token to use to push to the Model Hub.")
-    parser.add_argument(
         "--cache_dir",
         type=str,
         default="~/.cache/huggingface/datasets",
@@ -340,6 +336,7 @@ def process_raw_dataset(args, accelerator, raw_datasets, tokenizer):
         processed_datasets = raw_datasets.map(
             preprocess_function,
             batched=True,
+            num_proc=args.preprocessing_num_workers,
             remove_columns=column_names,
             load_from_cache_file=not args.overwrite_cache,
             desc="Running tokenizer on dataset",
@@ -605,13 +602,12 @@ def main():
             if completed_steps >= args.max_train_steps:
                 break
 
-        # run evaluation
+        # Run evaluation
         eval(args, accelerator, model, tokenizer, eval_dataloader, metric)
 
-        result = metric.compute(use_stemmer=True)
         # Extract a few results from ROUGE
+        result = metric.compute(use_stemmer=True)
         result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
-
         result = {k: round(v, 4) for k, v in result.items()}
 
         logger.info(result)

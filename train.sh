@@ -4,13 +4,20 @@ module load arrow/5.0.0
 module load python/3.8
 source $HOME/envABERT/bin/activate
 
-OUTPUT_DIR=/home/mcao610/scratch/BART_distillation
+MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large
+OUTPUT_DIR=$SCRATCH/BART_distillation
 
-# --source_prefix "summarize: " \
-# --dataset_config "3.0.0" \
+
 accelerate launch run_summarization_no_trainer.py \
+    --model_name_or_path $MODEL_NAME_OR_PATH \
+    --dataset_name xsum \
     --per_device_train_batch_size 6 \
     --per_device_eval_batch_size 8 \
-    --model_name_or_path /home/mcao610/scratch/huggingface/bart-large \
-    --dataset_name xsum \
+    --num_warmup_steps 500 \
+    --learning_rate 5e-5 \
+    --num_beams 6 \
+    --overwrite_cache false \
     --output_dir $OUTPUT_DIR;
+    # --source_prefix "summarize: " \
+    # --dataset_config "3.0.0" \
+    # --preprocessing_num_workers 20 \
