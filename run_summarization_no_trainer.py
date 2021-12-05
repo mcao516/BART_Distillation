@@ -279,6 +279,80 @@ def parse_args():
     return args
 
 
+def get_raw_dataset(args):
+    """
+    Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
+    or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
+    (the dataset will be downloaded automatically from the datasets Hub).
+    
+    For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
+    'text' is found. You can easily tweak this behavior (see below).
+    
+    In distributed training, the load_dataset function guarantee that only one local process can concurrently
+    download the dataset.
+
+    Returns:
+        :class:`Dataset`
+    """
+    if args.dataset_name is not None:
+        # Downloading and loading a dataset from the hub.
+        raw_datasets = load_dataset(
+            args.dataset_name,
+            args.dataset_config_name,
+            cache_dir=args.cache_dir
+        )
+    else:
+        data_files = {}
+        if args.train_file is not None:
+            data_files["train"] = args.train_file
+        if args.validation_file is not None:
+            data_files["validation"] = args.validation_file
+        extension = args.train_file.split(".")[-1]
+        raw_datasets = load_dataset(extension, data_files=data_files)
+
+    return raw_datasets
+
+
+def load_pretrained_model_and_tokenizer(
+    model_name_or_path,
+    config_name,
+    tokenizer_name,
+    model_type=None,
+    use_slow_tokenizer=False
+):
+    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
+    # download model & vocab.
+    if config_name:
+        config = AutoConfig.from_pretrained(config_name)
+    elif model_name_or_path:
+        config = AutoConfig.from_pretrained(model_name_or_path)
+    else:
+        config = CONFIG_MAPPING[model_type]()
+        logger.warning("You are instantiating a new config instance from scratch.")
+
+    if tokenizer_name:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, use_fast=not use_slow_tokenizer)
+    elif model_name_or_path:
+        tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, use_fast=not use_slow_tokenizer)
+    else:
+        raise ValueError(
+            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
+            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
+        )
+
+    if model_name_or_path:
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            model_name_or_path,
+            from_tf=bool(".ckpt" in model_name_or_path),
+            config=config,
+        )
+    else:
+        logger.info("Training new model from scratch")
+        model = AutoModelForSeq2SeqLM.from_config(config)
+
+    return config, tokenizer, model
+
+
 def get_column_names(args, column_names):
     """Get the column names for input/target."""
     dataset_columns = summarization_name_mapping.get(args.dataset_name, None)
@@ -396,7 +470,9 @@ def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
             labels = batch["labels"]
             if not args.pad_to_max_length:
                 # If we did not pad to max length, we need to pad the labels too
-                labels = accelerator.pad_across_processes(batch["labels"], dim=1, pad_index=tokenizer.pad_token_id)
+                labels = accelerator.pad_across_processes(
+                    batch["labels"], dim=1, pad_index=tokenizer.pad_token_id
+                )
 
             generated_tokens = accelerator.gather(generated_tokens).cpu().numpy()
             labels = accelerator.gather(labels).cpu().numpy()
@@ -462,68 +538,21 @@ def main():
             os.makedirs(args.output_dir, exist_ok=True)
     accelerator.wait_for_everyone()
 
-    # Get the datasets: you can either provide your own CSV/JSON/TXT training and evaluation files (see below)
-    # or just provide the name of one of the public datasets available on the hub at https://huggingface.co/datasets/
-    # (the dataset will be downloaded automatically from the datasets Hub).
-    #
-    # For CSV/JSON files, this script will use the column called 'text' or the first column if no column called
-    # 'text' is found. You can easily tweak this behavior (see below).
-    #
-    # In distributed training, the load_dataset function guarantee that only one local process can concurrently
-    # download the dataset.
-    if args.dataset_name is not None:
-        # Downloading and loading a dataset from the hub.
-        raw_datasets = load_dataset(
-            args.dataset_name,
-            args.dataset_config_name,
-            cache_dir=args.cache_dir
-        )
-    else:
-        data_files = {}
-        if args.train_file is not None:
-            data_files["train"] = args.train_file
-        if args.validation_file is not None:
-            data_files["validation"] = args.validation_file
-        extension = args.train_file.split(".")[-1]
-        raw_datasets = load_dataset(extension, data_files=data_files)
-    # See more about loading any type of standard or custom dataset (from files, python dict, pandas DataFrame, etc) at
-    # https://huggingface.co/docs/datasets/loading_datasets.html.
-
     # Load pretrained model and tokenizer
-    #
-    # In distributed training, the .from_pretrained methods guarantee that only one local process can concurrently
-    # download model & vocab.
-    if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name)
-    elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
-    else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
-
-    if args.tokenizer_name:
-        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer_name, use_fast=not args.use_slow_tokenizer)
-    elif args.model_name_or_path:
-        tokenizer = AutoTokenizer.from_pretrained(args.model_name_or_path, use_fast=not args.use_slow_tokenizer)
-    else:
-        raise ValueError(
-            "You are instantiating a new tokenizer from scratch. This is not supported by this script."
-            "You can do it from another script, save it, and load it from here, using --tokenizer_name."
-        )
-
-    if args.model_name_or_path:
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            args.model_name_or_path,
-            from_tf=bool(".ckpt" in args.model_name_or_path),
-            config=config,
-        )
-    else:
-        logger.info("Training new model from scratch")
-        model = AutoModelForSeq2SeqLM.from_config(config)
+    config, tokenizer, model = load_pretrained_model_and_tokenizer(
+        args.model_name_or_path,
+        args.config_name,
+        args.tokenizer_name,
+        model_type=args.model_type,
+        use_slow_tokenizer=args.use_slow_tokenizer
+    )
 
     model.resize_token_embeddings(len(tokenizer))
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
+
+    # Get the raw dataset
+    raw_datasets = get_raw_dataset(args)
 
     # Preprocessing the datasets.
     processed_datasets = process_raw_dataset(args, accelerator, raw_datasets, tokenizer)
@@ -545,7 +574,9 @@ def main():
     train_dataloader = DataLoader(
         train_dataset, shuffle=True, collate_fn=data_collator, batch_size=args.per_device_train_batch_size
     )
-    eval_dataloader = DataLoader(eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size)
+    eval_dataloader = DataLoader(
+        eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size
+    )
 
     # Prepare optimizer
     optimizer = setup_optimizer(args, model)
@@ -607,6 +638,7 @@ def main():
                 break
 
         # Run evaluation
+        logger.info("***** Running evaluation *****")
         eval(args, accelerator, model, tokenizer, eval_dataloader, metric)
 
         # Extract a few results from ROUGE
