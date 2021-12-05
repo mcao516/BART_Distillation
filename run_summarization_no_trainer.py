@@ -34,7 +34,7 @@ from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 
 import transformers
-from accelerate import Accelerator
+from accelerate import Accelerator, DeepSpeedPlugin
 from filelock import FileLock
 from huggingface_hub import Repository
 from transformers import (
@@ -406,6 +406,7 @@ def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
                 labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
             if isinstance(generated_tokens, tuple):
                 generated_tokens = generated_tokens[0]
+
             decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
             decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
@@ -430,6 +431,9 @@ def main():
         )
     # Initialize the accelerator. We will let the accelerator handle device placement for us in this example.
     accelerator = Accelerator()
+    # deepspeed_plugin = DeepSpeedPlugin(zero_stage=2, gradient_accumulation_steps=args.gradient_accumulation_steps)
+    # accelerator = Accelerator(fp16=True, deepspeed_plugin=deepspeed_plugin)
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
