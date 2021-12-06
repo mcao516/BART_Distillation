@@ -1,9 +1,10 @@
 #!/bin/bash
 # Load python enviroment
-if [ ${HOSTNAME:0:5} = "login" ]; then
+if [ ${HOSTNAME:0:5} = "login" ] || [ ${HOSTNAME:0:2} = "cn" ]; then
     echo "Load enviroment on MILA cluster"
-    module load anaconda/3
-    conda activate py38
+    module load cuda/11.0
+    module load python/3.8
+    source $HOME/envABERT/bin/activate
 else
     echo "Load enviroment on CC"
     module load StdEnv/2020 gcc/9.3.0 cuda/11.0
