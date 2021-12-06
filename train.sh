@@ -11,7 +11,7 @@ else
     module load arrow/5.0.0
     module load python/3.8
 
-    if [ ${HOSTNAME:0:6} = "beluga" ]; then
+    if [ ${HOSTNAME:0:3} = "blg" ]; then
         source $SCRATCH/envABERT/bin/activate
     elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:5} = "cedar" ]; then
         source $HOME/envABERT/bin/activate
