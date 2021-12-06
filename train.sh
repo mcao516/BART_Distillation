@@ -13,7 +13,7 @@ else
 
     if [ ${HOSTNAME:0:3} = "blg" ]; then
         source $SCRATCH/envABERT/bin/activate
-    elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:5} = "cedar" ]; then
+    elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:3} = "cdr" ]; then
         source $HOME/envABERT/bin/activate
     else
         echo "Unknown cluster!!!"
