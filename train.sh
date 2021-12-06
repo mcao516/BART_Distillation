@@ -1,8 +1,24 @@
 #!/bin/bash
-module load StdEnv/2020 gcc/9.3.0 cuda/11.0
-module load arrow/5.0.0
-module load python/3.8
-source $HOME/envABERT/bin/activate
+# Load python enviroment
+if [ ${HOSTNAME:0:5} = "login" ]; then
+    echo "Load enviroment on MILA cluster"
+    module load anaconda/3
+    conda activate py38
+else
+    echo "Load enviroment on CC"
+    module load StdEnv/2020 gcc/9.3.0 cuda/11.0
+    module load arrow/5.0.0
+    module load python/3.8
+
+    if [ ${HOSTNAME:0:6} = "beluga" ]; then
+        source $SCRATCH/envABERT/bin/activate
+    elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:5} = "cedar" ]; then
+        source $HOME/envABERT/bin/activate
+    else
+        echo "Unknown cluster!!!"
+    fi
+fi
+
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large
 OUTPUT_DIR=$SCRATCH/BART_distillation
