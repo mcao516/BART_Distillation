@@ -266,6 +266,13 @@ def parse_args():
 
     # student model arguments
     parser.add_argument("--temperature", type=float, default=1.0, help="Temperature for soft cross-entropy loss.")
+    parser.add_argument(
+        "--student_model_name_or_path",
+        type=str,
+        help="Path to pretrained model or model identifier from huggingface.co/models.",
+        required=True,
+    )
+    
     args = parser.parse_args()
 
     # Sanity checks
@@ -566,7 +573,7 @@ def main():
 
     # Load student model and tokenizer
     student_config, _, student_model = load_pretrained_model_and_tokenizer(
-        "/home/mcao610/scratch/huggingface/distilbart-xsum-6-6",
+        args.student_model_name_or_path,
         config_name=None,
         tokenizer_name=None,
         use_slow_tokenizer=False,

@@ -13,7 +13,7 @@ else
 
     if [ ${HOSTNAME:0:3} = "blg" ]; then
         source $SCRATCH/envABERT/bin/activate
-    elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:3} = "cdr" ]; then
+    elif [ ${HOSTNAME:0:2} = "ng" ] || [ ${HOSTNAME:0:3} = "cdr" ]; then
         source $HOME/envABERT/bin/activate
     else
         echo "Unknown cluster!!!"
@@ -22,12 +22,14 @@ fi
 
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
+STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/distilbart-xsum-6-6
 OUTPUT_DIR=$SCRATCH/BART_e6d6_distillation
 
 accelerate launch summarization_kd.py \
     --model_name_or_path $MODEL_NAME_OR_PATH \
+    --student_model_name_or_path $STUDENT_MODEL_NAME_OR_PATH \
     --dataset_name xsum \
-    --per_device_train_batch_size 5 \
+    --per_device_train_batch_size 6 \
     --per_device_eval_batch_size 8 \
     --preprocessing_num_workers 16 \
     --num_warmup_steps 500 \
