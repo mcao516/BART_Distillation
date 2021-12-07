@@ -21,10 +21,10 @@ else
 fi
 
 
-MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large
-OUTPUT_DIR=$SCRATCH/BART_distillation
+MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
+OUTPUT_DIR=$SCRATCH/BART_e6d6_distillation
 
-accelerate launch run_summarization_no_trainer.py \
+accelerate launch summarization_kd.py \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --dataset_name xsum \
     --per_device_train_batch_size 5 \
