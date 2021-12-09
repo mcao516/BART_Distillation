@@ -23,6 +23,7 @@ import math
 import os
 import random
 from pathlib import Path
+from copy import deepcopy
 
 import datasets
 import nltk
@@ -467,6 +468,9 @@ def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
         "max_length": args.val_max_target_length if args is not None else config.max_length,
         "num_beams": args.num_beams,
     }
+
+    progress_bar = tqdm(range(len(eval_dataloader)), disable=not accelerator.is_local_main_process)
+
     for step, batch in enumerate(eval_dataloader):
         with torch.no_grad():
             generated_tokens = accelerator.unwrap_model(model).generate(
@@ -500,6 +504,9 @@ def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
             decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
 
             metric.add_batch(predictions=decoded_preds, references=decoded_labels)
+
+            # update the progress bar
+            progress_bar.update(1)
 
 
 def soft_cross_entropy(predicts, targets):
@@ -583,6 +590,13 @@ def main():
     model.resize_token_embeddings(len(tokenizer))
     student_model.resize_token_embeddings(len(tokenizer))
 
+    # logger.info("Initialize student model's embedding")
+    # with torch.no_grad():
+    #     # model.branches[1].weight.copy_(model.branches[0].weight)
+    #     student_model.model.shared.weight.copy_(
+    #         model.model.shared.weight
+    #     )
+
     if model.config.decoder_start_token_id is None or \
         student_model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
@@ -663,12 +677,17 @@ def main():
         for step, batch in enumerate(train_dataloader):
             with torch.no_grad():
                 # keys: ['loss', 'logits', 'past_key_values', 'encoder_last_hidden_state']
-                outputs = model(**batch, return_dict=True)
+                teacher_outputs = model(**batch, return_dict=True)
 
             student_outputs = student_model(**batch, return_dict=True)
 
-            loss = soft_cross_entropy(student_outputs.logits / args.temperature,
-                                      outputs.logits / args.temperature)
+            # logits: [batch_size, tgt_len, vocab_size]
+            vocab_size = student_outputs.logits.shape[-1]
+            student_logits = student_outputs.logits.view(-1, vocab_size)
+            teacher_logits = teacher_outputs.logits.view(-1, vocab_size)
+
+            loss = soft_cross_entropy(student_logits / args.temperature,
+                                      teacher_logits / args.temperature)
 
             loss = loss / args.gradient_accumulation_steps
             accelerator.backward(loss)
