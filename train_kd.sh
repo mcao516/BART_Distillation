@@ -22,8 +22,8 @@ fi
 
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
-STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/distilbart-xsum-6-6
-OUTPUT_DIR=$SCRATCH/BART_e6d6_distillation
+STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-base
+OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation
 
 accelerate launch summarization_kd.py \
     --model_name_or_path $MODEL_NAME_OR_PATH \

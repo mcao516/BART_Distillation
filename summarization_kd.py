@@ -686,8 +686,9 @@ def main():
             student_logits = student_outputs.logits.view(-1, vocab_size)
             teacher_logits = teacher_outputs.logits.view(-1, vocab_size)
 
-            loss = soft_cross_entropy(student_logits / args.temperature,
-                                      teacher_logits / args.temperature)
+            kd_loss = soft_cross_entropy(student_logits / args.temperature,
+                                         teacher_logits / args.temperature)
+            loss = (kd_loss + student_outputs.loss) / 2
 
             loss = loss / args.gradient_accumulation_steps
             accelerator.backward(loss)
