@@ -519,17 +519,35 @@ def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
             progress_bar.update(1)
 
 
-def soft_cross_entropy(predicts, targets):
+def soft_cross_entropy(predicts, targets, mask=None, temperature=1.0):
     """Soft cross-entropy for knowledge distillation. 
 
     Args:
-        predicts: student output logits
-        targets: teacher output logits
-    
+        predicts: student logits, [batch_size, tgt_length, vocab_size]
+        targets: teacher logits, [batch_size, tgt_length, vocab_size]
+        mask: [batch_size, tgt_length]
+
     """
-    student_likelihood = F.log_softmax(predicts, dim=-1)
-    targets_prob = F.softmax(targets, dim=-1)
-    return (- targets_prob * student_likelihood).mean()
+    assert predicts.shape == targets.shape
+    vocab_size = predicts.shape[-1]
+
+    if mask is not None:
+        mask = mask.unsqueeze(-1).expand_as(targets)
+
+        # `masked_select` returns a new 1-D tensor
+        predicts = torch.masked_select(predicts, ~mask)
+        targets = torch.masked_select(targets, ~mask)
+
+    predicts = predicts.view(-1, vocab_size)
+    targets = targets.view(-1, vocab_size)
+
+    student_likelihood = F.log_softmax(predicts / temperature, dim=-1)
+    targets_prob = F.softmax(targets / temperature, dim=-1)
+
+    KL_loss = F.kl_div(student_likelihood, targets_prob, reduction='batchmean')
+    # CE_loss = (- student_likelihood * targets_prob).mean()
+
+    return KL_loss
 
 
 def main():
@@ -697,6 +715,14 @@ def main():
         model.eval()
 
         for step, batch in enumerate(train_dataloader):
+            """
+            batch: {
+                'attention_mask': [batch_size, src_length]
+                'input_ids': [batch_size, src_length]
+                'labels': [0, ..., 2, -100, -100, ...]
+                'decoder_input_ids': [2, 0, ..., 2, 1, 1, ...]
+            }
+            """
             with torch.no_grad():
                 # keys: ['loss', 'logits', 'past_key_values', 'encoder_last_hidden_state']
                 teacher_outputs = model(**batch, return_dict=True)
@@ -704,14 +730,12 @@ def main():
             student_outputs = student_model(**batch, return_dict=True)
 
             # logits: [batch_size, tgt_len, vocab_size]
-            vocab_size = student_outputs.logits.shape[-1]
-            student_logits = student_outputs.logits.view(-1, vocab_size)
-            teacher_logits = teacher_outputs.logits.view(-1, vocab_size)
-
-            kd_loss = soft_cross_entropy(student_logits / args.temperature,
-                                         teacher_logits / args.temperature)
-            # loss = (kd_loss + student_outputs.loss) / 2
-            loss = kd_loss
+            pad_mask = batch['labels'].eq(-100)
+            kd_loss = soft_cross_entropy(student_outputs.logits,
+                                         teacher_outputs.logits,
+                                         pad_mask,
+                                         args.temperature)
+            loss = (kd_loss + student_outputs.loss) / 2
 
             loss = loss / args.gradient_accumulation_steps
             accelerator.backward(loss)
