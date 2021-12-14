@@ -27,11 +27,13 @@ OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation_only_kd_tmp05
 
     # --train_student_from_scratch \
 accelerate launch summarization_kd.py \
+    --job_name full_kd_loss \
+    --project_name summarization-kd \
     --temperature 0.5 \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --student_model_name_or_path $STUDENT_MODEL_NAME_OR_PATH \
     --dataset_name xsum \
-    --per_device_train_batch_size 6 \
+    --per_device_train_batch_size 2 \
     --per_device_eval_batch_size 8 \
     --preprocessing_num_workers 16 \
     --num_warmup_steps 500 \

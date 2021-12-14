@@ -71,6 +71,17 @@ except (LookupError, OSError):
     with FileLock(".lock") as lock:
         nltk.download("punkt", quiet=True)
 
+_has_wandb = False
+try:
+    import wandb
+
+    _has_wandb = True
+except:
+    logger.warning(
+        "W&B logger is not installed, \
+        for advanced logging please install using pip install wandb"
+    )
+
 summarization_name_mapping = {
     "amazon_reviews_multi": ("review_body", "review_title"),
     "big_patent": ("description", "abstract"),
@@ -283,7 +294,18 @@ def parse_args():
         action="store_true",
         help="Only run evaluation."
     )
-    
+    parser.add_argument(
+        "--job_name",
+        type=str,
+        default="kd_experiment",
+        help="W&B job name."
+    )
+    parser.add_argument(
+        "--project_name",
+        type=str,
+        default="summarization-kd",
+        help="W&B project name."
+    )
     args = parser.parse_args()
 
     # Sanity checks
@@ -469,6 +491,37 @@ def postprocess_text(preds, labels):
     return preds, labels
 
 
+def setup_wandb(args, model, resume_id=None):
+    if _has_wandb:
+        if resume_id is not None:
+            wandb.init(
+                project=args.project_name,
+                group=args.job_name,
+                dir="./",
+                resume="allow",
+                id=resume_id,
+            )
+        else:
+            wandb.init(project=args.project_name, group=args.job_name, dir="./")
+        wandb.config.update(args, allow_val_change=True)
+        wandb.watch(model)
+    else:
+        logger.info("W&B library not installed. Using only CLI logging.")
+
+
+def report_metrics(lr, kd_loss, ce_loss, loss, step):
+    current_lr = lr[0] if type(lr) == list else lr
+
+    if _has_wandb:
+        log_info = {
+            f"train/lr": current_lr,
+            f"train/kd_loss": kd_loss,
+            f"train/ce_loss": ce_loss,
+            f"train/train_loss": loss,
+        }
+        wandb.log(log_info, step=step)
+
+
 def eval(args, accelerator, model, tokenizer, eval_dataloader, metric):
     model.eval()
     if args.val_max_target_length is None:
@@ -625,6 +678,10 @@ def main():
     #         model.model.shared.weight
     #     )
 
+    # setup W&B logging
+    if accelerator.is_main_process:
+        setup_wandb(args, student_model, resume_id=None)
+
     if model.config.decoder_start_token_id is None or \
         student_model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
@@ -746,6 +803,16 @@ def main():
                 progress_bar.update(1)
                 completed_steps += 1
 
+                # W&B logging
+                if accelerator.is_main_process:
+                    report_metrics(
+                        lr_scheduler.get_last_lr(),
+                        kd_loss.item(),
+                        student_outputs.loss.item(),
+                        loss.item(),
+                        completed_steps
+                    )
+
             if completed_steps >= args.max_train_steps:
                 break
 
@@ -760,6 +827,11 @@ def main():
 
         logger.info(result)
 
+        if accelerator.is_main_process and _has_wandb:
+            log_info = {"Validation/" + k: v for k, v in result.items()}
+            wandb.log(log_info, completed_steps)
+
+    # save model after training
     if args.output_dir is not None:
         accelerator.wait_for_everyone()
         unwrapped_model = accelerator.unwrap_model(student_model)
