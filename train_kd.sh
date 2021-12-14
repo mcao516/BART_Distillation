@@ -23,9 +23,11 @@ fi
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
 STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-base
-OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation
+OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation_only_kd_tmp05
 
+    # --train_student_from_scratch \
 accelerate launch summarization_kd.py \
+    --temperature 0.5 \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --student_model_name_or_path $STUDENT_MODEL_NAME_OR_PATH \
     --dataset_name xsum \

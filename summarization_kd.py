@@ -273,6 +273,16 @@ def parse_args():
         help="Path to pretrained model or model identifier from huggingface.co/models.",
         required=True,
     )
+    parser.add_argument(
+        "--train_student_from_scratch",
+        action="store_true",
+        help="Do not initialize the student from checkpoint"
+    )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Only run evaluation."
+    )
     
     args = parser.parse_args()
 
@@ -584,7 +594,7 @@ def main():
         config_name=None,
         tokenizer_name=None,
         use_slow_tokenizer=False,
-        load_pretrained_model=False
+        load_pretrained_model=not args.train_student_from_scratch
     )
 
     model.resize_token_embeddings(len(tokenizer))
@@ -656,6 +666,18 @@ def main():
     # Metric
     metric = load_metric("rouge")
 
+    # Check if only run evaluation
+    if args.eval:
+        logger.info("***** Running evaluation *****")
+        eval(args, accelerator, student_model, tokenizer, eval_dataloader, metric)
+        # Extract a few results from ROUGE
+        result = metric.compute(use_stemmer=True)
+        result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+        result = {k: round(v, 4) for k, v in result.items()}
+
+        logger.info(result)
+        exit()
+
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
@@ -688,7 +710,8 @@ def main():
 
             kd_loss = soft_cross_entropy(student_logits / args.temperature,
                                          teacher_logits / args.temperature)
-            loss = (kd_loss + student_outputs.loss) / 2
+            # loss = (kd_loss + student_outputs.loss) / 2
+            loss = kd_loss
 
             loss = loss / args.gradient_accumulation_steps
             accelerator.backward(loss)
