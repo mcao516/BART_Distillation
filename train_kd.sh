@@ -23,21 +23,22 @@ fi
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
 STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-base
-OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation_only_kd_tmp05
+OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation
 
     # --train_student_from_scratch \
 accelerate launch summarization_kd.py \
     --job_name full_kd_loss \
     --project_name summarization-kd \
-    --temperature 0.5 \
+    --temperature 1.0 \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --student_model_name_or_path $STUDENT_MODEL_NAME_OR_PATH \
     --dataset_name xsum \
-    --per_device_train_batch_size 2 \
+    --per_device_train_batch_size 6 \
     --per_device_eval_batch_size 8 \
     --preprocessing_num_workers 16 \
     --num_warmup_steps 500 \
     --learning_rate 5e-5 \
+    --num_train_epochs 6 \
     --gradient_accumulation_steps 2 \
     --num_beams 6 \
     --overwrite_cache false \
