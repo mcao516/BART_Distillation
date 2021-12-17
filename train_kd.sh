@@ -23,7 +23,7 @@ fi
 
 MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large-xsum
 STUDENT_MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-base
-OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation
+OUTPUT_DIR=$SCRATCH/BART_base_xsum_distillation_epoch12
 
     # --train_student_from_scratch \
 accelerate launch summarization_kd.py \
@@ -38,8 +38,8 @@ accelerate launch summarization_kd.py \
     --preprocessing_num_workers 16 \
     --num_warmup_steps 500 \
     --learning_rate 5e-5 \
-    --num_train_epochs 6 \
-    --gradient_accumulation_steps 2 \
+    --num_train_epochs 20 \
+    --gradient_accumulation_steps 1 \
     --num_beams 6 \
     --overwrite_cache false \
     --output_dir $OUTPUT_DIR;

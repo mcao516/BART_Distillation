@@ -263,6 +263,11 @@ def parse_args():
         default="~/.cache/huggingface/datasets",
         help="Cache directory for datasets."
     )
+    parser.add_argument(
+        "--eval",
+        action="store_true",
+        help="Only run evaluation."
+    )
     args = parser.parse_args()
 
     # Sanity checks
@@ -605,6 +610,18 @@ def main():
 
     # Metric
     metric = load_metric("rouge")
+
+    # Check if only run evaluation
+    if args.eval:
+        logger.info("***** Running evaluation *****")
+        eval(args, accelerator, model, tokenizer, eval_dataloader, metric)
+        # Extract a few results from ROUGE
+        result = metric.compute(use_stemmer=True)
+        result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+        result = {k: round(v, 4) for k, v in result.items()}
+
+        logger.info(result)
+        exit()
 
     # Train!
     total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps

@@ -13,7 +13,7 @@ else
 
     if [ ${HOSTNAME:0:3} = "blg" ]; then
         source $SCRATCH/envABERT/bin/activate
-    elif [ ${HOSTNAME:0:6} = "narval" ] || [ ${HOSTNAME:0:3} = "cdr" ]; then
+    elif [ ${HOSTNAME:0:2} = "ng" ] || [ ${HOSTNAME:0:3} = "cdr" ]; then
         source $HOME/envABERT/bin/activate
     else
         echo "Unknown cluster!!!"
@@ -21,20 +21,21 @@ else
 fi
 
 
-MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-large
-OUTPUT_DIR=$SCRATCH/BART_distillation
+MODEL_NAME_OR_PATH=$SCRATCH/BART_base_xsum_epoch20
+OUTPUT_DIR=$SCRATCH/BART_base_xsum_epoch20
 
 accelerate launch run_summarization_no_trainer.py \
+    --eval \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --dataset_name xsum \
-    --per_device_train_batch_size 5 \
+    --per_device_train_batch_size 8 \
     --per_device_eval_batch_size 8 \
     --preprocessing_num_workers 16 \
     --num_warmup_steps 500 \
     --learning_rate 5e-5 \
-    --gradient_accumulation_steps 2 \
+    --gradient_accumulation_steps 1 \
     --num_beams 6 \
-    --overwrite_cache false \
+    --num_train_epochs 20 \
     --output_dir $OUTPUT_DIR;
     # --source_prefix "summarize: " \
     # --dataset_config "3.0.0" \
