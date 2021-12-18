@@ -832,7 +832,7 @@ def main():
 
             # save the model after each epoch of training
             if args.output_dir is not None:
-                epoch_output_dir = os.path.join(argsl.output_dir, '{}/'.format(epoch))
+                epoch_output_dir = os.path.join(args.output_dir, '{}'.format(epoch))
                 accelerator.wait_for_everyone()
                 unwrapped_model = accelerator.unwrap_model(model)
                 unwrapped_model.save_pretrained(epoch_output_dir, save_function=accelerator.save)

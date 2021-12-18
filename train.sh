@@ -21,11 +21,10 @@ else
 fi
 
 
-MODEL_NAME_OR_PATH=$SCRATCH/BART_base_xsum_epoch12
+MODEL_NAME_OR_PATH=$SCRATCH/huggingface/bart-base
 OUTPUT_DIR=$SCRATCH/BART_base_xsum_epoch20
 
 accelerate launch run_summarization_no_trainer.py \
-    --eval \
     --model_name_or_path $MODEL_NAME_OR_PATH \
     --dataset_name xsum \
     --per_device_train_batch_size 8 \
