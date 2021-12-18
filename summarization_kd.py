@@ -741,8 +741,8 @@ def main():
     # Metric
     metric = load_metric("rouge")
 
-    # Check if only run evaluation
     if args.eval:
+        # Evaluation only
         logger.info("***** Running evaluation *****")
         eval(args, accelerator, student_model, tokenizer, eval_dataloader, metric)
         # Extract a few results from ROUGE
@@ -751,93 +751,93 @@ def main():
         result = {k: round(v, 4) for k, v in result.items()}
 
         logger.info(result)
-        exit()
+    else:
+        # Train!
+        total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
 
-    # Train!
-    total_batch_size = args.per_device_train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+        logger.info("***** Running training *****")
+        logger.info(f"  Num examples = {len(train_dataset)}")
+        logger.info(f"  Num Epochs = {args.num_train_epochs}")
+        logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
+        logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+        logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
+        logger.info(f"  Total optimization steps = {args.max_train_steps}")
+        # Only show the progress bar once on each machine.
+        progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+        completed_steps = 0
 
-    logger.info("***** Running training *****")
-    logger.info(f"  Num examples = {len(train_dataset)}")
-    logger.info(f"  Num Epochs = {args.num_train_epochs}")
-    logger.info(f"  Instantaneous batch size per device = {args.per_device_train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
-    logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
-    logger.info(f"  Total optimization steps = {args.max_train_steps}")
-    # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
-    completed_steps = 0
+        for epoch in range(args.num_train_epochs):
+            student_model.train()
+            model.eval()
 
-    for epoch in range(args.num_train_epochs):
-        student_model.train()
-        model.eval()
+            for step, batch in enumerate(train_dataloader):
+                """
+                batch: {
+                    'attention_mask': [batch_size, src_length]
+                    'input_ids': [batch_size, src_length]
+                    'labels': [0, ..., 2, -100, -100, ...]
+                    'decoder_input_ids': [2, 0, ..., 2, 1, 1, ...]
+                }
+                """
+                with torch.no_grad():
+                    # keys: ['loss', 'logits', 'past_key_values', 'encoder_last_hidden_state']
+                    teacher_outputs = model(**batch, return_dict=True)
 
-        for step, batch in enumerate(train_dataloader):
-            """
-            batch: {
-                'attention_mask': [batch_size, src_length]
-                'input_ids': [batch_size, src_length]
-                'labels': [0, ..., 2, -100, -100, ...]
-                'decoder_input_ids': [2, 0, ..., 2, 1, 1, ...]
-            }
-            """
-            with torch.no_grad():
-                # keys: ['loss', 'logits', 'past_key_values', 'encoder_last_hidden_state']
-                teacher_outputs = model(**batch, return_dict=True)
+                student_outputs = student_model(**batch, return_dict=True)
 
-            student_outputs = student_model(**batch, return_dict=True)
+                # logits: [batch_size, tgt_len, vocab_size]
+                pad_mask = batch['labels'].eq(-100)
+                kd_loss = soft_cross_entropy(student_outputs.logits,
+                                            teacher_outputs.logits,
+                                            pad_mask,
+                                            args.temperature)
+                loss = (kd_loss + student_outputs.loss) / 2
 
-            # logits: [batch_size, tgt_len, vocab_size]
-            pad_mask = batch['labels'].eq(-100)
-            kd_loss = soft_cross_entropy(student_outputs.logits,
-                                         teacher_outputs.logits,
-                                         pad_mask,
-                                         args.temperature)
-            loss = (kd_loss + student_outputs.loss) / 2
+                loss = loss / args.gradient_accumulation_steps
+                accelerator.backward(loss)
+                if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                    optimizer.step()
+                    lr_scheduler.step()
+                    optimizer.zero_grad()
+                    progress_bar.update(1)
+                    completed_steps += 1
 
-            loss = loss / args.gradient_accumulation_steps
-            accelerator.backward(loss)
-            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
-                optimizer.step()
-                lr_scheduler.step()
-                optimizer.zero_grad()
-                progress_bar.update(1)
-                completed_steps += 1
+                    # W&B logging
+                    if accelerator.is_main_process:
+                        report_metrics(
+                            lr_scheduler.get_last_lr(),
+                            kd_loss.item(),
+                            student_outputs.loss.item(),
+                            loss.item(),
+                            completed_steps
+                        )
 
-                # W&B logging
+                if completed_steps >= args.max_train_steps:
+                    break
+
+            # Run evaluation
+            logger.info("***** Running evaluation *****")
+            eval(args, accelerator, student_model, tokenizer, eval_dataloader, metric)
+
+            # Extract a few results from ROUGE
+            result = metric.compute(use_stemmer=True)
+            result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
+            result = {k: round(v, 4) for k, v in result.items()}
+
+            logger.info(result)
+
+            if accelerator.is_main_process and _has_wandb:
+                log_info = {"Validation/" + k: v for k, v in result.items()}
+                wandb.log(log_info, completed_steps)
+
+            # save the model after each epoch of training
+            if args.output_dir is not None:
+                epoch_output_dir = os.path.join(argsl.output_dir, '{}/'.format(epoch))
+                accelerator.wait_for_everyone()
+                unwrapped_model = accelerator.unwrap_model(model)
+                unwrapped_model.save_pretrained(epoch_output_dir, save_function=accelerator.save)
                 if accelerator.is_main_process:
-                    report_metrics(
-                        lr_scheduler.get_last_lr(),
-                        kd_loss.item(),
-                        student_outputs.loss.item(),
-                        loss.item(),
-                        completed_steps
-                    )
-
-            if completed_steps >= args.max_train_steps:
-                break
-
-        # Run evaluation
-        logger.info("***** Running evaluation *****")
-        eval(args, accelerator, student_model, tokenizer, eval_dataloader, metric)
-
-        # Extract a few results from ROUGE
-        result = metric.compute(use_stemmer=True)
-        result = {key: value.mid.fmeasure * 100 for key, value in result.items()}
-        result = {k: round(v, 4) for k, v in result.items()}
-
-        logger.info(result)
-
-        if accelerator.is_main_process and _has_wandb:
-            log_info = {"Validation/" + k: v for k, v in result.items()}
-            wandb.log(log_info, completed_steps)
-
-    # save model after training
-    if args.output_dir is not None:
-        accelerator.wait_for_everyone()
-        unwrapped_model = accelerator.unwrap_model(student_model)
-        unwrapped_model.save_pretrained(args.output_dir, save_function=accelerator.save)
-        if accelerator.is_main_process:
-            tokenizer.save_pretrained(args.output_dir)
+                    tokenizer.save_pretrained(epoch_output_dir)
 
 
 if __name__ == "__main__":

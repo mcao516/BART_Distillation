@@ -21,7 +21,7 @@ else
 fi
 
 
-MODEL_NAME_OR_PATH=$SCRATCH/BART_base_xsum_epoch20
+MODEL_NAME_OR_PATH=$SCRATCH/BART_base_xsum_epoch12
 OUTPUT_DIR=$SCRATCH/BART_base_xsum_epoch20
 
 accelerate launch run_summarization_no_trainer.py \
