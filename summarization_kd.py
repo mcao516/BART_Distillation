@@ -30,6 +30,7 @@ import nltk
 import numpy as np
 import torch
 import torch.nn.functional as F
+from torch.nn import CrossEntropyLoss
 from datasets import load_dataset, load_metric
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
@@ -305,6 +306,11 @@ def parse_args():
         type=str,
         default="summarization-kd",
         help="W&B project name."
+    )
+    parser.add_argument(
+        "--use_label_loss",
+        action="store_true",
+        help="Use hard-label cross-entropy loss."
     )
     args = parser.parse_args()
 
@@ -779,19 +785,35 @@ def main():
                     'decoder_input_ids': [2, 0, ..., 2, 1, 1, ...]
                 }
                 """
+                batch_no_labels = {
+                    'attention_mask': batch['attention_mask'],
+                    'input_ids': batch['input_ids'],
+                    'decoder_input_ids': batch['decoder_input_ids']
+                }
                 with torch.no_grad():
-                    # keys: ['loss', 'logits', 'past_key_values', 'encoder_last_hidden_state']
-                    teacher_outputs = model(**batch, return_dict=True)
+                    # keys: ['logits', 'past_key_values', 'encoder_last_hidden_state']
+                    teacher_outputs = model(**batch_no_labels, return_dict=True)
 
-                student_outputs = student_model(**batch, return_dict=True)
+                student_outputs = student_model(**batch_no_labels, return_dict=True)
 
-                # logits: [batch_size, tgt_len, vocab_size]
+                # KD loss
                 pad_mask = batch['labels'].eq(-100)
-                kd_loss = soft_cross_entropy(student_outputs.logits,
-                                            teacher_outputs.logits,
-                                            pad_mask,
-                                            args.temperature)
-                loss = (kd_loss + student_outputs.loss) / 2
+                loss = soft_cross_entropy(student_outputs.logits,
+                                          teacher_outputs.logits,
+                                          pad_mask,
+                                          args.temperature)
+                kd_loss_item = loss.item()
+
+                # hard-label loss
+                hard_label_loss_item = 0.
+                if args.use_label_loss:
+                    loss_fct = CrossEntropyLoss()
+                    vocab_size = student_outputs.logits.shape[-1]
+                    hard_label_loss = loss_fct(
+                        student_outputs.logits.view(-1, vocab_size), batch.labels.view(-1)
+                    )
+                    loss = (loss + hard_label_loss) / 2
+                    hard_label_loss_item = hard_label_loss.item()
 
                 loss = loss / args.gradient_accumulation_steps
                 accelerator.backward(loss)
@@ -806,8 +828,8 @@ def main():
                     if accelerator.is_main_process:
                         report_metrics(
                             lr_scheduler.get_last_lr(),
-                            kd_loss.item(),
-                            student_outputs.loss.item(),
+                            kd_loss_item,
+                            hard_label_loss_item,
                             loss.item(),
                             completed_steps
                         )
